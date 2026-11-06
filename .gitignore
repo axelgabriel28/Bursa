@@ -1,0 +1,4 @@
+*.class
+*.dat
+*.dat.lock
+bursa-*.tmp
