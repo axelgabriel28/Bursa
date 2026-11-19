@@ -1,132 +1,83 @@
 # Bursa
 
-A Localized Multi-Ledger Financial Management System: an offline Java CLI for income,
-expenses, transfers, monthly budgets, and savings goals. Uses only the Java standard
-library. Requires JDK 17 or newer; no Maven, database, or network connection is needed.
+Bursa is an offline Java command-line program for managing separate wallets in Philippine pesos (PHP). It records income and expenses, moves money between wallets, tracks monthly spending, and measures progress toward savings goals. The console calls wallets **pouches** and shows their combined balance as the **treasury**.
+
+## Group members
+
+| Member | Name |
+| --- | --- |
+| 1 | [Member 1 name] |
+| 2 | [Member 2 name] |
+| 3 | [Member 3 name] |
+| 4 | [Member 4 name] |
 
 ## Compile and run
 
-From the repository root in PowerShell:
+Install JDK 17 or newer and make sure both `java -version` and `javac -version` report version 17 or newer. Bursa uses the Java standard library and stores its data locally.
+
+From the repository root in PowerShell, run:
 
 ```powershell
-javac *.java
+javac --release 17 *.java
 java Main
 ```
 
-The default data file is `bursa.dat`, relative to the working directory. You
-can supply a different location:
+Bursa uses `bursa.dat` in the working directory by default. To open or create a different ledger, run `java Main "my-ledger.dat"`.
 
-```powershell
-java Main "my-ledger.dat"
-```
+## Use the ledger
 
-Choose **2** to create a wallet, selecting `PERSONAL`, `ORGANIZATION`, `SAVINGS`, or
-`E_WALLET`. Choose **1** to list numbered wallets and balances. Choose **3** to record
-an income or expense, **4** to transfer funds, and **5** to see a wallet's balance,
-history, budgets, and savings goal. To check an Organization Wallet, choose **5**
-and enter its pouch number. Options **6** and **7** set budgets and goals. Choose **0** to
-save and exit. End-of-input also saves. Invalid input returns to the menu.
-
-## Structure
-
-| Class or interface | Responsibility |
+| Option | What it does |
 | --- | --- |
-| `Wallet`, `WalletType` | Distinct identities, categories, balances, histories, budgets, and goals |
-| `Transaction`, `TransactionType` | Immutable timestamped income, expense, and transfer entries |
-| `LedgerService` | Validated, synchronized wallet operations and paired transfer logging |
-| `MonthlyBudget` | Wallet-wide monthly expense limit and remaining amount |
-| `SavingsGoal` | Named target and progress based on current wallet balance |
-| `LedgerStorage` | Interface for saving and loading the ledger |
-| `StorageManager` | Versioned object serialization, session locking, and atomic snapshot saves |
-| `Main` | Interactive terminal input and startup/exit persistence |
+| **1** | List wallets and their current balances. |
+| **2** | Create a Personal, Organization, Savings, or E-Wallet pouch. |
+| **3** | Record income or an expense with an amount and category. |
+| **4** | Transfer funds between two wallets. |
+| **5** | View a wallet's balance, transaction history, budgets, and savings goal. |
+| **6** | Set or replace a spending limit for a month in `YYYY-MM` format. |
+| **7** | Set or replace a wallet's savings goal. |
+| **0** | Save the ledger and exit. |
 
-All Java source files are in the project root; no source or build folders are required. Wallet categories use one encapsulated
-class with an enum because their balance behavior is identical. The service owns
-mutations; callers receive immutable transaction entries and collection snapshots.
-The service serializes mutations and saves. The CLI is single-threaded; callers
-building a concurrent UI should also read wallet details under the service monitor.
+Create a wallet with **2**, then use **3** to record its starting funds as `INCOME`. New wallets start at PHP 0.00. When prompted for a wallet, enter its displayed number or its UUID. Set the `NO_COLOR` environment variable to disable console colors.
 
-## Business rules
+- **Amounts and transfers.** Enter positive amounts with up to two decimal places. Bursa uses `BigDecimal` for exact decimal arithmetic and rejects expenses or transfers that would overdraw a wallet. A transfer creates an outgoing and an incoming entry with the same transfer ID, amount, and timestamp.
+- **Monthly budgets.** Only expenses count toward the limit. Bursa groups them by month using the ledger's `Asia/Manila` time zone by default. A negative remaining amount shows overspending. The limit is advisory.
+- **Savings goals.** Each wallet has one active goal. Progress uses the current wallet balance and is displayed up to 100%. An expense or outgoing transfer can reduce progress.
+- **Local storage.** Bursa loads the ledger on startup and saves on normal exit or end-of-input. `StorageManager` locks the data file for the session through a companion lock file, then saves by atomically replacing the previous snapshot. A corrupt or incompatible file stops startup and is preserved. The snapshot is unencrypted.
 
-- All wallets use **PHP**, with exact `BigDecimal` arithmetic and at most two
-  decimal places. Enter positive amounts; the entry type controls the direction.
-  Wallets start at zero; record initial funds as income so the history explains
-  the balance. Expenses and transfers cannot overdraw a wallet.
-- Transfers require two existing, different wallets and sufficient funds. Both
-  entries are created before mutation and share a transfer UUID, timestamp, and
-  amount, with reciprocal wallet references. They preserve the combined balance.
-- Each wallet can have one budget per `YYYY-MM`, and setting it again replaces
-  that month's limit. Only expenses count; income and transfers are excluded.
-  Negative remaining amounts indicate overspending. Budgets are advisory.
-- Month boundaries use the ledger's persisted `Asia/Manila` time zone. Transaction
-  timestamps are stored as UTC `Instant` values and displayed in UTC.
-- Each wallet can have one active savings goal; setting another replaces it.
-  All funds in that wallet count toward the goal. Withdrawals reduce progress;
-  displayed progress is capped at 100%. Goals do not reserve or restrict funds.
+## How Bursa uses the four pillars of OOP
 
-## Example service usage
+### Encapsulation
 
-```java
-import java.math.BigDecimal;
-import java.nio.file.Path;
-import java.time.YearMonth;
+[Wallet.java](Wallet.java) keeps the balance, history, budgets, and savings goal in private fields. `getHistory()` and `getBudgets()` return unmodifiable snapshots, so callers cannot edit those collections directly. In the normal program flow, [LedgerService.java](LedgerService.java) validates operations before calling the wallet's package-private methods. For example, `transfer()` checks both wallets and the available funds before it records either entry.
 
-// Inside a method:
-try (LedgerStorage storage = new StorageManager(Path.of("example.dat"))) {
-    LedgerService ledger = storage.load();
-    Wallet personal = ledger.createWallet("Daily spending", WalletType.PERSONAL);
-    Wallet organization = ledger.createWallet("Student club", WalletType.ORGANIZATION);
-    Wallet savings = ledger.createWallet("Emergency fund", WalletType.SAVINGS);
+### Abstraction
 
-    ledger.addTransaction(personal.getId(), TransactionType.INCOME,
-            new BigDecimal("10000.00"), "Salary");
-    ledger.addTransaction(personal.getId(), TransactionType.EXPENSE,
-            new BigDecimal("150.00"), "Food");
-    ledger.transfer(personal.getId(), organization.getId(), new BigDecimal("500.00"));
-    ledger.setBudget(personal.getId(), YearMonth.now(ledger.getZone()),
-            new BigDecimal("3000.00"));
-    ledger.setSavingsGoal(savings.getId(), "Emergency fund", new BigDecimal("20000.00"));
-    ledger.transfer(personal.getId(), savings.getId(), new BigDecimal("1000.00"));
-    System.out.println(organization.getBalance()); // 500.00
-    storage.save(ledger);
-}
-```
+[LedgerStorage.java](LedgerStorage.java) defines the persistence operations `load()`, `save()`, and `close()`. Code that uses this interface can work with a ledger without handling file locks, Java serialization, or snapshot replacement. [StorageManager.java](StorageManager.java) handles those details. The console follows the same principle when it calls `LedgerService.transfer()` to move funds through one operation.
 
-This example creates new wallets each time it runs. Existing wallets can be
-retrieved by UUID with `ledger.getWallet(id)`.
+### Inheritance
 
-## Persistence behavior
+`LedgerStorage` uses `extends AutoCloseable` to inherit Java's resource-closing contract. `StorageManager` implements that interface and supplies `close()`, which releases the session lock and closes its file channel. [Main.java](Main.java) uses try-with-resources so Java calls `close()` when the session ends. The four wallet categories are values of the [WalletType.java](WalletType.java) enum and share the same `Wallet` class.
 
-The CLI holds an operating-system file lock for its entire session, preventing two
-cooperating Bursa sessions from overwriting each other's changes. A save writes a
-temporary snapshot in the same directory, flushes it to disk, and atomically
-replaces the previous file. If atomic replacement is unsupported, saving fails
-and preserves the previous snapshot. Loading rejects oversized files and uses a
-deserialization allowlist and resource limits. Corrupt or incompatible files stop
-startup without automatically resetting or overwriting the data.
+### Polymorphism
 
-Data is saved on normal exit or EOF. An abrupt process termination before saving
-loses that session's changes. Atomic replacement protects against partial-file
-writes; it is not a backup or a guarantee against hardware failure. The snapshot
-format is versioned `BURSA-1`; future model changes may require a migration.
-Files are not encrypted or authenticated: use trusted local files and OS access
-controls, and keep backups for important records. This is a local single-user
-system; it does not implement user authentication or currency conversion.
+An interface reference such as `LedgerStorage storage = new StorageManager(file)` can call `storage.save(ledger)`, and Java dispatches the call to the `StorageManager` implementation. Bursa also uses method overriding in [Transaction.java](Transaction.java). When `Main` prints a transaction through `System.out::println`, Java uses `Transaction.toString()` to show the timestamp, type, amount, category, and any transfer references.
 
-## Run regression checks
+## Source layout
+
+| Source | Responsibility |
+| --- | --- |
+| [Main.java](Main.java), [ConsoleUI.java](ConsoleUI.java) | Read input, display the themed menu, and present wallet details. |
+| [LedgerService.java](LedgerService.java) | Create wallets and validate transactions, transfers, budgets, and goals. |
+| [Wallet.java](Wallet.java), [WalletType.java](WalletType.java) | Track each wallet's identity, category, balance, history, budget limits, and goal. |
+| [Transaction.java](Transaction.java), [TransactionType.java](TransactionType.java), [Money.java](Money.java) | Represent ledger entries and validate monetary amounts. |
+| [MonthlyBudget.java](MonthlyBudget.java), [SavingsGoal.java](SavingsGoal.java) | Calculate the remaining budget and progress toward a savings target. |
+| [LedgerStorage.java](LedgerStorage.java), [StorageManager.java](StorageManager.java) | Define the persistence contract and implement local file storage. |
+
+## Run the regression checks
 
 ```powershell
 javac --release 17 -Xlint:all *.java
 java LedgerTest
 ```
 
-The dependency-free checks cover wallet isolation, transfer pairing and rejected
-operations, immutable histories, monthly budgets and time zones, savings progress,
-storage round trips, snapshot replacement, session locking, and corrupt-file
-preservation. Tests use temporary files and clean them up afterward.
-
-## Console adventure theme
-
-The console uses original ASCII turnip artwork and a vegetable-adventure theme inspired by Turnip Boy Commits Tax Evasion. Framed village menus, numbered pouch selection, a treasury display, and savings quest progress bars keep finance operations readable. All sources stay in the project root.
-
-Interactive terminals use sage green, cream, and warm gold ANSI colors. Set the NO_COLOR environment variable to disable color. Redirected output is automatically plain text. Choose wallet types with numbers 1 through 4; wallet selection accepts the displayed number or an existing UUID.
+[LedgerTest.java](LedgerTest.java) checks wallet balances, linked transfers, rejected transactions, monthly budget boundaries, savings progress, and storage behavior.
