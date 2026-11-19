@@ -44,6 +44,40 @@ Create a wallet with **2**, then use **3** to record its starting funds as `INCO
 - **Savings goals.** Each wallet has one active goal. Progress uses the current wallet balance and is displayed up to 100%. An expense or outgoing transfer can reduce progress.
 - **Local storage.** Bursa loads the ledger on startup and saves on normal exit or end-of-input. `StorageManager` locks the data file for the session through a companion lock file, then saves by atomically replacing the previous snapshot. A corrupt or incompatible file stops startup and is preserved. The snapshot is unencrypted.
 
+## Sample console demo
+
+After compiling, paste the following into PowerShell. Each quoted value is one response to a Bursa prompt. The demo uses a fresh file in your temporary directory, so wallet numbers start at 1.
+
+```powershell
+$demoFile = Join-Path ([IO.Path]::GetTempPath()) "bursa-demo-$([guid]::NewGuid()).dat"
+$month = [DateTime]::UtcNow.AddHours(8).ToString('yyyy-MM') # Current month in Manila
+
+$demoInput = @(
+    '2', 'Daily spending', '1'           # Create wallet 1 (Personal)
+    '2', 'Emergency fund', '3'           # Create wallet 2 (Savings)
+    '3', '1', 'INCOME', '1000', 'Salary' # Record income in wallet 1
+    '3', '1', 'EXPENSE', '125.50', 'Food'
+    '4', '1', '2', '250'                 # Transfer from wallet 1 to wallet 2
+    '6', '1', $month, '300'              # Set wallet 1's monthly budget
+    '7', '2', 'Emergency fund', '500'    # Set wallet 2's savings goal
+    '5', '1'                            # Inspect wallet 1
+    '5', '2'                            # Inspect wallet 2
+    '0'                                 # Save and exit
+)
+
+$demoInput | java Main $demoFile
+```
+
+| What to look for | Expected result |
+| --- | --- |
+| Daily spending balance | PHP 624.50 |
+| Daily spending budget | PHP 125.50 spent, PHP 174.50 remaining |
+| Emergency fund balance | PHP 250.00 |
+| Emergency fund goal | 50.00% of PHP 500.00 |
+
+To reopen the saved demo, run `java Main $demoFile` in the same PowerShell session.
+
+
 ## How Bursa uses the four pillars of OOP
 
 ### Encapsulation
